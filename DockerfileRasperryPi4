@@ -1,0 +1,13 @@
+FROM arm32v7/openjdk:11.0.3-jre
+MAINTAINER Bard Lind <bard.lind@gmail.com>
+
+ADD target/iot-edge-host-observer-*.jar /home/edgeobserver/iot-edge-host-observer.jar
+
+WORKDIR "/home/edgeobserver"
+CMD [ \
+    "java", \
+    "-jar", \
+    "iot-edge-host-observer.jar" \
+]
+
+
