@@ -1,9 +1,12 @@
 package no.entra.iot.hostobserver;
 
+import no.entra.iot.hostobserver.azure.DeviceTwinClient;
 import no.entra.iot.hostobserver.ip.NetworkConfig;
 import org.slf4j.Logger;
 
+import java.io.IOException;
 import java.net.InetAddress;
+import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -16,8 +19,19 @@ public class AgentDaemon {
     private static final Logger log = getLogger(AgentDaemon.class);
     public static final String NAME = "iot-edge-host-observer";
     public static final String DEVICE_CONNECTION_STRING = "DEVICE_CONNECTION_STRING";
+    private DeviceTwinClient deviceTwinClient;
 
-    //TODO send to Azure IoT
+    public AgentDaemon() {
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            public void run() {
+                log.info("Shutting down " + NAME);
+                deviceTwinClient.disconnect();
+                log.info("DONE.");
+
+            }
+        });
+    }
+
     public static void main(String[] args) {
         log.info("Starting " + NAME);
         AgentDaemon agentDaemon = new AgentDaemon();
@@ -25,20 +39,27 @@ public class AgentDaemon {
         if (isEmpty(iotHubDeviceConnectionString)) {
             log.error("Missing required property: DEVICE_CONNECTION_STRING, exiting ");
         } else {
-            agentDaemon.reportIpAdressesEveryNSeconds(10);
+            agentDaemon.connectToIoTHub(iotHubDeviceConnectionString);
+            agentDaemon.reportIpAdressesEveryNSeconds(1000);
+        }
+    }
+
+    void connectToIoTHub(String iotHubDeviceConnectionString) {
+        try {
+            deviceTwinClient = new DeviceTwinClient(iotHubDeviceConnectionString);
+            deviceTwinClient.connect();
+        } catch (URISyntaxException e) {
+            log.info("URI Syntax in {}. Failed to connect to IoTHub. Reason: {}", iotHubDeviceConnectionString, e.getMessage());
+        } catch (IOException e) {
+            log.info("Failed to connect to IoTHub. Reason: {}", e.getMessage());
         }
     }
 
     void reportIpAdressesEveryNSeconds(int seconds) {
         Timer t = new Timer();
-        ReportIpAddresses mTask = new ReportIpAddresses();
+        ReportIpAddresses mTask = new ReportIpAddresses(deviceTwinClient);
 
         t.scheduleAtFixedRate(mTask, 0, seconds * 1000);
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            public void run() {
-                log.info("Shutting down " + NAME);
-            }
-        });
     }
 
     static String findConnectionString(String[] args) {
@@ -54,18 +75,26 @@ public class AgentDaemon {
 
     class ReportIpAddresses extends TimerTask {
 
-        public ReportIpAddresses() {
-            //Some stuffs
+        private final DeviceTwinClient deviceTwinClient;
+
+        public ReportIpAddresses(DeviceTwinClient deviceTwinClient) {
+            this.deviceTwinClient = deviceTwinClient;
         }
 
         @Override
         public void run() {
-            Map<String, InetAddress> networkCardConifg = NetworkConfig.findPublicIpAddresses();
-            if (networkCardConifg != null) {
-                for (String cardName : networkCardConifg.keySet()) {
-                    InetAddress inetAddress = networkCardConifg.get(cardName);
+            Map<String, InetAddress> networkCardConfig = NetworkConfig.findPublicIpAddresses();
+            if (networkCardConfig != null) {
+                for (String cardName : networkCardConfig.keySet()) {
+                    InetAddress inetAddress = networkCardConfig.get(cardName);
                     if (inetAddress != null) {
-                        log.info("CardName: {}, Ip: {}", cardName, inetAddress.getHostAddress());
+                        String hostAddress = inetAddress.getHostAddress();
+                        log.info("CardName: {}, Ip: {}", cardName, hostAddress);
+                        try {
+                            deviceTwinClient.updateProperty("IP-" + cardName, hostAddress);
+                        } catch (IOException e) {
+                            log.info("Failed to update property on IoT Hub. Reason: {}", e.getMessage());
+                        }
                     }
                 }
             }
