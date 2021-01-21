@@ -75,7 +75,7 @@
     <dependency>
       <groupId>com.microsoft.azure.sdk.iot</groupId>
       <artifactId>iot-device-client</artifactId>
-      <version>1.28.0</version>
+      <version>1.29.0</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
